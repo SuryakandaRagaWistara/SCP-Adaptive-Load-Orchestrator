@@ -3,7 +3,7 @@ const path = require('path');
 
 let session = null;
 
-// 1. Initialization
+// inisialisasi session onnx runtime untuk gatekeeper.
 async function init() {
     if (session) return;
     try {
@@ -22,22 +22,22 @@ async function init() {
  * 2. prediction
  * Menerima objek (dari Redis JSON), array murni 7 dimensi.
  * @param {Object|Array} input - Data fitur dari aggregator.
- * @returns {Promise<number>} - 1 jika ATTACK, 0 jika SAFE.
+ * @returns {Promise<number>} - 1 jika ATTACK, 1 jika SAFE.
  */
 
 async function predict(input) {
     if (!session) await init();
 
     try {
-        // --- DEBUG 1: CEK DATA MENTAH DARI REDIS ---
+        // Debug raw data dari redis
         console.log("\n" + "=".repeat(40));
         console.log("[DEBUG] DATA MASUK DARI AGGREGATOR:");
         console.log(`[>] IP      : ${input.ip || 'Unknown'}`);
         console.log(`[>] Features: ${JSON.stringify(input.features)}`);
         console.log("=".repeat(40));
 
+        // Memastikan input memiliki 7 fitur
         let featureArray = Array.isArray(input) ? input : (input.features || null);
-
         if (!featureArray || featureArray.length !== 7) {
             console.error(`[!] FORMAT ERROR: Mengharap 7 fitur, tapi dapet ${featureArray ? featureArray.length : 'null'}`);
             return 0;
@@ -49,7 +49,6 @@ async function predict(input) {
         const feeds = { [session.inputNames[0]]: inputTensor };
         const outputMap = await session.run(feeds);
 
-        // --- DEBUG 2: CEK OUTPUT ASLI MODEL ONNX ---
         const rawOutput = outputMap[session.outputNames[0]].data[0];
         console.log(`[DEBUG] RAW AI OUTPUT (Label): ${rawOutput}`);
 

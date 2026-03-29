@@ -3,6 +3,7 @@
 const Redis = require('ioredis');
 const REDIS_HOST = process.env.REDIS_HOST || 'redis';
 
+// konfiguras
 const redis = new Redis({
     host: REDIS_HOST,
     port: 6379,
@@ -35,7 +36,7 @@ async function fetch_gatekeeper_data() {
 }
 
 /**
- * Mengambil data sistem untuk Forecaster
+ * Mengambil semua data sistem yang diperlukan untuk Forecaster
  */
 async function fetch_forecaster_data() {
     try {

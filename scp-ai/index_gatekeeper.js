@@ -1,11 +1,19 @@
 const { redis } = require('./utils/redis_client');
 const gatekeeper = require('./lib/gatekeeper');
 
-// KONFIGURASI
+// --- KONFIGURASI ---
 const CONCURRENCY = 15;
 const EMERGENCY_THRESHOLD = 0.85;
 const MIN_SENS_FOR_AI = 0.2;
 
+/**
+ * logika pemrosesan permintaan (request processing).
+ * menerapkan sistem filter bertingkat untuk efisiensi sumber daya:
+ * 1. layer 0: pengecekan status blokir yang sudah ada.
+ * 2. layer 1: emergency block berdasarkan ambang batas sensitivitas ekstrem.
+ * 3. layer 1.5: fast rule untuk mendeteksi lonjakan (spike) tanpa ai.
+ * 4. layer 2: klasifikasi mendalam menggunakan model ai onnx.
+ */
 async function processRequest(workerId, parsed) {
     const { ip, features } = parsed;
     const sens_ratio = features[6] || 0;
@@ -13,11 +21,9 @@ async function processRequest(workerId, parsed) {
     const blockKey = `ip_blocked:${ip}`;
 
     try {
-        // --- LAYER 0: CEK BLOCK SEKALI (HEMAT CPU & AI) ---
         const alreadyBlocked = await redis.exists(blockKey);
         if (alreadyBlocked) return;
 
-        // --- LAYER 1: EMERGENCY BLOCK ---
         if (sens_ratio > EMERGENCY_THRESHOLD) {
             const res = await redis.set(blockKey, '1', 'EX', 300, 'NX');
 
@@ -26,9 +32,6 @@ async function processRequest(workerId, parsed) {
             }
             return;
         }
-
-        // --- LAYER 1.5: FAST RULE (SPIKE DETECTOR) ---
-        // Kombinasi req_rate + sens → lebih cepat dari AI
         if (req_rate >= 3 && sens_ratio > 0.4) {
             const res = await redis.set(blockKey, '1', 'EX', 300, 'NX');
 
@@ -38,10 +41,8 @@ async function processRequest(workerId, parsed) {
             return;
         }
 
-        // --- SKIP AI UNTUK TRAFIK RENDAH ---
         if (sens_ratio < MIN_SENS_FOR_AI) return;
 
-        // --- LAYER 2: AI ---
         const prediction = await gatekeeper.predict(parsed);
 
         if (prediction === 1) {
@@ -51,7 +52,6 @@ async function processRequest(workerId, parsed) {
                 console.log(`[🚨][W-${workerId}] AI BLOCKED: ${ip}`);
             }
         } else {
-            // log hanya jika mulai mencurigakan
             if (sens_ratio > 0.4) {
                 console.log(`[⚠️][W-${workerId}] WATCH: ${ip} (Sens: ${sens_ratio.toFixed(4)})`);
             }
@@ -62,6 +62,12 @@ async function processRequest(workerId, parsed) {
     }
 }
 
+/**
+ * mekanisme worker pool.
+ * mengambil data dari antrean redis secara kompetitif menggunakan blpop.
+ * concurrency yang tinggi memungkinkan pemrosesan ribuan log per detik 
+ * tanpa menghambat alur data utama.
+ */
 async function worker(id) {
     console.log(`[*] Worker ${id} ready`);
 
@@ -80,6 +86,11 @@ async function worker(id) {
     }
 }
 
+/**
+ * inisialisasi engine gatekeeper.
+ * memuat model ai ke memori dan menyebarkan worker sesuai jumlah 
+ * concurrency yang dikonfigurasi untuk mulai mendengarkan antrean log.
+ */
 async function main() {
     try {
         console.log('--- GATEKEEPER HYBRID ENGINE (OPTIMIZED) ---');

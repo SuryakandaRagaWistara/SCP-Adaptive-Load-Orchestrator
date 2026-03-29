@@ -12,10 +12,17 @@ from functools import lru_cache
 LOG_FILE = "/var/log/nginx/access.log" 
 REDIS_HOST = os.getenv('REDIS_HOST', 'redis')
 QUEUE_NAME = "log_queue"
+r = redis.Redis(
+    host=REDIS_HOST, 
+    port=6379, 
+    decode_responses=True
+)
 
-# Redis client
-r = redis.Redis(host=REDIS_HOST, port=6379, decode_responses=True)
-
+"""
+fungsi utilitas untuk menghitung entropi shannon pada string.
+digunakan untuk mengukur kompleksitas atau keunikan user-agent (ua).
+menggunakan lru_cache untuk mengoptimalkan performa pada string yang berulang.
+"""
 @lru_cache(maxsize=512)
 def calculate_entropy(s):
     if not s: return 0.0
@@ -24,7 +31,12 @@ def calculate_entropy(s):
     probs = [count / length for count in counts.values()]
     return float(-sum(p * math.log2(p) for p in probs))
 
-# --- PRODUCER ---
+"""
+---> producer
+    komponen producer: memantau file log nginx secara real-time (tailing).
+    setiap baris baru yang muncul akan langsung dimasukkan ke dalam antrean redis
+    (lpush ke log_queue) untuk diproses oleh komponen consumer.
+    """
 def tail_producer():
     if not os.path.exists(LOG_FILE):
         print(f"[!] ERROR: File {LOG_FILE} tidak ditemukan.", flush=True)
@@ -47,7 +59,16 @@ def tail_producer():
             if raw_line:
                 r.rpush(QUEUE_NAME, raw_line)
 
-# --- CONSUMER ---
+"""
+---> consumer
+    komponen consumer: memproses log dalam jendela waktu (window) 0.5 detik.
+    tugas utama:
+    1. mengumpulkan log dari redis queue dalam interval singkat.
+    2. melakukan parsing data (ip, status, size, user-agent).
+    3. menghitung fitur statistik per ip (mean size, variance, entropy, rps).
+    4. mengelola memori jangka pendek (spike) dan menengah (history) di redis.
+    5. mengirimkan vektor fitur final ke 'gatekeeper_queue' untuk klasifikasi.
+"""
 def process_window():
     print("[*] Consumer started: 0.5s Window | Optimized Mode...", flush=True)
 
@@ -96,6 +117,11 @@ def process_window():
 
         # Feature extraction
         for ip, logs in data_per_ip.items():
+            """
+            ekstraksi fitur statistik dan perhitungan sinyal akumulasi.
+            menghasilkan vektor input untuk model onnx yang mencakup karakteristik 
+            beban (request rate) dan anomali perilaku (variance & sensitivity).
+            """
             sizes = [l['size'] for l in logs]
             statuses = [l['status'] for l in logs]
             arrival_times = [l['arrival_time'] for l in logs]
@@ -141,17 +167,20 @@ def process_window():
                 "features": onnx_input
             }
 
-            # Debug log (lebih informatif)
             print(
                 f"[DEBUG OUT] IP: {ip} | Win: {req_rate} | Total: {total_accumulated} | Spike: {spike} | Sens: {sensitive_ratio_val:.4f}",
                 flush=True
             )
 
-            # Kirim ke Gatekeeper
             r.lpush("gatekeeper_queue", json.dumps(payload))
 
 
 if __name__ == "__main__":
+    """
+    eksekusi program utama.
+    menjalankan tail_producer dalam thread terpisah (background) agar 
+    proses pembacaan log tidak menghambat logika pemrosesan jendela (windowing).
+    """
     t1 = threading.Thread(target=tail_producer, daemon=True)
     t1.start()
 

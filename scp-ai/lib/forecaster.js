@@ -4,7 +4,11 @@ const path = require('path');
 let sessQ50 = null;
 let sessQ90 = null;
 
-// 1. Inisialisasi Dua Model (Q50 & Q90)
+/**
+ * inisialisasi session onnx runtime.
+ * memuat dua model kuantil (q50 untuk median dan q90 untuk skenario beban tinggi) 
+ * ke dalam memori agar proses inferensi berikutnya dapat berjalan secara instan.
+ */
 async function init() {
     if (sessQ50 && sessQ90) return;
     try {
@@ -31,25 +35,32 @@ async function predictBaseline(featureArray, currentCpu) {
     if (!sessQ50 || !sessQ90) await init();
 
     try {
-        // Pastikan input adalah Float32Array dengan dimensi [1, 13]
+        /**
+         * transformasi data input.
+         * memastikan data berbentuk float32array dengan dimensi tensor [1, 13] 
+         * sesuai dengan spesifikasi input model onnx yang telah dilatih.
+         */
         const cleanFeatures = featureArray.map(f => parseFloat(f) || 0);
         const inputTensor = new ort.Tensor('float32', new Float32Array(cleanFeatures), [1, 13]);
         const feeds = { [sessQ50.inputNames[0]]: inputTensor };
 
-        // Jalankan Inferensi
         const output50 = await sessQ50.run(feeds);
         const output90 = await sessQ90.run(feeds);
 
         const q50 = parseFloat(output50[sessQ50.outputNames[0]].data[0]);
         const q90 = parseFloat(output90[sessQ90.outputNames[0]].data[0]);
 
-        // 3. Logika Proaktif Baseline (Sesuai eksperimen Jupyter kamu)
+        /**
+         * logika kalkulasi agresivitas dan invers cpu.
+         * menghitung selisih (gap) antara q90 dan q50 untuk menentukan tingkat ketidakpastian.
+         * bobot dihitung menggunakan metode 'inverse cpu', di mana node dengan penggunaan 
+         * cpu lebih rendah akan mendapatkan porsi beban (baseline) yang lebih besar.
+         */
         const gap = Math.max(0, q90 - q50);
         const aggressiveness = 1.0 + (gap / (q50 + 1.0));
 
         const cpuValues = [currentCpu.a, currentCpu.b, currentCpu.c];
         
-        // Inverse CPU Calculation
         const invCpu = cpuValues.map(cpu => 1.0 / Math.pow((parseFloat(cpu) + 0.05), aggressiveness));
         const sumInv = invCpu.reduce((a, b) => a + b, 0);
         

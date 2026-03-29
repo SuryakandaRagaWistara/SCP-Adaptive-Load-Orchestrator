@@ -6,14 +6,18 @@ from datetime import datetime
 import threading
 import os
 
-# konfurasi
+"""
+inisialisasi koneksi ke infrastruktur eksternal.
+mengatur klien docker untuk monitoring container dan 
+koneksi redis sebagai bus data antar komponen.
+"""
 REDIS_HOST = os.getenv('REDIS_HOST', 'redis')
 r = redis.Redis(
     host=REDIS_HOST,
     port=6379,
     decode_responses=True
 )
-
+# --- KONFIGURASI ---
 docker_client = docker.from_env()
 NODES = {
     'ecommerce-apotek-api_server-1': 'A',
@@ -24,7 +28,13 @@ NODES = {
 NS_SYS = "aggregator:pid-ctr"
 NS_FORE = "aggregator:forecaster:input"
 
-# SENSOR PID 
+"""
+---> sensor pid
+    loop monitoring cpu usage per container secara real-time.
+    mengambil delta penggunaan cpu di antara dua interval singkat 
+    untuk menghitung persentase beban kerja aktual, kemudian 
+    menyimpannya ke redis untuk digunakan oleh controller pid.
+"""
 def sensor_pid_thread():
     print(f"[*] Sensor PID aktif. Monitoring: {list(NODES.keys())}", flush=True)
     while True:
@@ -51,7 +61,6 @@ def sensor_pid_thread():
             print(f"[!] Error Sensor PID: {e}", flush=True)
             time.sleep(2)
 
-# get time
 def get_time_features():
     now = datetime.now()
     return {
@@ -61,7 +70,13 @@ def get_time_features():
         "holiday_flag": 0
     }
 
-# aggregator forecaster
+"""
+---> aggregator forecaster
+    proses agregasi fitur untuk model peramalan (forecaster).
+    mengumpulkan metrik lalu lintas (rps, sesi, latency) dan data 
+    historis untuk membentuk array 13 fitur yang akan dikirim 
+    ke namespace redis forecaster setiap interval tertentu.
+"""
 def aggregate_forecaster():
     INTERVAL = 5
     print(f"[*] Forecaster Aktif. Namespace: {NS_FORE}", flush=True)
@@ -74,19 +89,19 @@ def aggregate_forecaster():
             history = r.lrange(history_key, 0, 15)
 
             feature_array = [
-                float(now.hour),                             # 1
-                float(now.weekday()),                        # 2
-                float(1 if now.weekday() >= 5 else 0),       # 3
-                0.0,                                         # 4 (holiday_flag)
-                raw_req_rate,                                # 5
-                float(r.get("metrics:sessions") or 0),       # 6
-                float(r.get("metrics:resp_time") or 0.0),    # 7
-                float(history[0]) if len(history) > 0 else 0.0,  # 8 (t-1)
-                float(history[4]) if len(history) > 4 else 0.0,  # 9 (t-5)
-                float(history[14]) if len(history) > 14 else 0.0, # 10 (t-15)
-                float(r.get("weight:A") or 0.33),            # 11
-                float(r.get("weight:B") or 0.33),            # 12
-                float(r.get("weight:C") or 0.33)             # 13
+                float(now.hour),                             
+                float(now.weekday()),                        
+                float(1 if now.weekday() >= 5 else 0),       
+                0.0,                                         
+                raw_req_rate,                               
+                float(r.get("metrics:sessions") or 0),      
+                float(r.get("metrics:resp_time") or 0.0),    
+                float(history[0]) if len(history) > 0 else 0.0,  
+                float(history[4]) if len(history) > 4 else 0.0,  
+                float(history[14]) if len(history) > 14 else 0.0, 
+                float(r.get("weight:A") or 0.33),           
+                float(r.get("weight:B") or 0.33),          
+                float(r.get("weight:C") or 0.33)            
             ]
 
             if len(feature_array) == 13:
@@ -106,8 +121,10 @@ def aggregate_forecaster():
             time.sleep(INTERVAL)
 
 if __name__ == "__main__":
-    # Jalankan monitor CPU di thread background
+    """
+    titik masuk utama aplikasi.
+    menjalankan sensor pid pada thread terpisah agar pemantauan 
+    cpu tidak memblokir proses agregasi data forecaster.
+    """
     threading.Thread(target=sensor_pid_thread, daemon=True).start()
-    
-    # Jalankan aggregator utama
     aggregate_forecaster()

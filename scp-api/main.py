@@ -7,5 +7,4 @@ def home():
     return jsonify({"status": "StellaCorpusPrimus API Online", "framework": "Flask"})
 
 if __name__ == "__main__":
-    # Penting: host harus 0.0.0.0 dan port 8000 (sesuai nginx.conf)
     app.run(host="0.0.0.0", port=8000)
