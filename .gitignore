@@ -1,0 +1,13 @@
+# database & logs
+*.rdb
+*.log
+scp-redis-data/
+scp-logs/
+
+# model ai (biasanya terlalu besar untuk github)
+*.onnx
+
+# environment & dependencies
+node_modules/
+__pycache__/
+.env
