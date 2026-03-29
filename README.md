@@ -1,15 +1,16 @@
 # 🚀 Adaptive Traffic Control System (ATCS) with Hybrid AI Mitigation
 
-Sistem infrastruktur adaptif berbasis **Closed-Loop Feedback** yang mengintegrasikan **Machine Learning** dan **Control Theory** untuk manajemen distribusi trafik dinamis serta mitigasi anomali secara asinkron.
+**Hybrid AI Mitigation & Autonomous Infrastructure**
+Sistem ini adalah infrastruktur adaptif berbasis **Closed-Loop Feedback** yang menggabungkan **Machine Learning** dan **Control Theory**. Fokus utamanya adalah manajemen trafik dinamis dan mitigasi bot secara asinkron tanpa membebani jalur utama request.
 
 ---
 
-## 💡 Inspirasi & Visi
+## 💡 Latar Belakang & Inspirasi
 > "Membangun sistem yang tidak hanya melayani, tapi juga beradaptasi secara otonom."
 
-Proyek ini lahir dari kegelisahan saat membangun backend E-Commerce Apotek. Saya merasa tertantang untuk menciptakan sesuatu yang lebih dari sekadar API statis—saya ingin membangun **'Living Server'**, sebuah infrastruktur yang memiliki insting untuk bertahan hidup, beradaptasi dengan beban trafik, dan mampu melindungi dirinya sendiri dari serangan bot.
+Proyek ini bermula dari tantangan pribadi saat membangun backend untuk tugas kelompok E-Commerce Apotek. Saya merasa membangun API statis saja terlalu "biasa" untuk sebuah portofolio. Saya ingin membangun sesuatu yang lebih hidup—sebuah **Living Server** yang bisa mengatur dirinya sendiri dan beradaptasi secara otonom.
 
-Inspirasi nyata muncul saat melihat masifnya gangguan bot pada server pribadi yang menguras sumber daya. Hal ini mendorong saya untuk menggabungkan **Machine Learning** dengan **Control Theory** sebagai solusi manajemen infrastruktur yang proaktif.
+Inspirasi nyata muncul saat saya menyewa server sendiri dan melihat betapa masifnya gangguan bot yang menguras sumber daya. Dari kegelisahan itulah, saya menggabungkan minat saya di bidang AI dengan solusi praktis untuk proteksi server.
 
 ---
 
@@ -26,7 +27,7 @@ Arsitektur ini didesain secara detail melalui pemodelan kompleks untuk menyelesa
 ---
 
 ## 🧠 Logika Hybrid-Intelligence
-Sistem dibagi menjadi tiga lapisan keputusan dengan disiplin waktu yang berbeda:
+Saya tidak ingin sistem ini "mati" hanya karena model AI sedang lambat. Maka, saya membagi otak sistem menjadi tiga bagian:
 
 ### 1. Gatekeeper (Near-Real-Time Anomaly Mitigation)
 Menggunakan **Isolation Forest** untuk mendeteksi anomali trafik melalui jalur asinkron.
