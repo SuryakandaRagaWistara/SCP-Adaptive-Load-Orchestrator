@@ -77,7 +77,3 @@ Sistem ini memiliki beberapa batasan teknis sebagai konsekuensi dari desain arsi
 * **AI Engine**: Python (Scikit-Learn, LightGBM/XGBoost)
 * **Inference Engine**: Node.js (ONNX Runtime)
 
----
-
-## 📄 Lisensi
-Proyek ini dilisensikan di bawah **MIT License**.
