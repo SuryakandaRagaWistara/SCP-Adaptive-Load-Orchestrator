@@ -1,0 +1,4 @@
+flask
+pandas
+redis
+psycopg2-binary

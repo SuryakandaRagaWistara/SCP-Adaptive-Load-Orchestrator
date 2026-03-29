@@ -1,0 +1,103 @@
+const { redis } = require('./utils/redis_client');
+const gatekeeper = require('./lib/gatekeeper');
+
+// KONFIGURASI
+const CONCURRENCY = 15;
+const EMERGENCY_THRESHOLD = 0.85;
+const MIN_SENS_FOR_AI = 0.2;
+
+async function processRequest(workerId, parsed) {
+    const { ip, features } = parsed;
+    const sens_ratio = features[6] || 0;
+    const req_rate = features[0] || 0;
+    const blockKey = `ip_blocked:${ip}`;
+
+    try {
+        // --- LAYER 0: CEK BLOCK SEKALI (HEMAT CPU & AI) ---
+        const alreadyBlocked = await redis.exists(blockKey);
+        if (alreadyBlocked) return;
+
+        // --- LAYER 1: EMERGENCY BLOCK ---
+        if (sens_ratio > EMERGENCY_THRESHOLD) {
+            const res = await redis.set(blockKey, '1', 'EX', 300, 'NX');
+
+            if (res === 'OK') {
+                console.log(`[🚨][W-${workerId}] EMERGENCY BLOCK: ${ip} (Sens: ${sens_ratio.toFixed(4)})`);
+            }
+            return;
+        }
+
+        // --- LAYER 1.5: FAST RULE (SPIKE DETECTOR) ---
+        // Kombinasi req_rate + sens → lebih cepat dari AI
+        if (req_rate >= 3 && sens_ratio > 0.4) {
+            const res = await redis.set(blockKey, '1', 'EX', 300, 'NX');
+
+            if (res === 'OK') {
+                console.log(`[⚡][W-${workerId}] FAST BLOCK: ${ip} (RPS: ${req_rate}, Sens: ${sens_ratio.toFixed(4)})`);
+            }
+            return;
+        }
+
+        // --- SKIP AI UNTUK TRAFIK RENDAH ---
+        if (sens_ratio < MIN_SENS_FOR_AI) return;
+
+        // --- LAYER 2: AI ---
+        const prediction = await gatekeeper.predict(parsed);
+
+        if (prediction === 1) {
+            const res = await redis.set(blockKey, '1', 'EX', 300, 'NX');
+
+            if (res === 'OK') {
+                console.log(`[🚨][W-${workerId}] AI BLOCKED: ${ip}`);
+            }
+        } else {
+            // log hanya jika mulai mencurigakan
+            if (sens_ratio > 0.4) {
+                console.log(`[⚠️][W-${workerId}] WATCH: ${ip} (Sens: ${sens_ratio.toFixed(4)})`);
+            }
+        }
+
+    } catch (err) {
+        console.error(`[!][Worker ${workerId}] Error:`, err.message);
+    }
+}
+
+async function worker(id) {
+    console.log(`[*] Worker ${id} ready`);
+
+    while (true) {
+        try {
+            const data = await redis.blpop("gatekeeper_queue", 0);
+            if (!data || !data[1]) continue;
+
+            const parsed = JSON.parse(data[1]);
+            await processRequest(id, parsed);
+
+        } catch (err) {
+            console.error(`[!][Worker ${id}] Loop Error:`, err.message);
+            await new Promise(r => setTimeout(r, 500));
+        }
+    }
+}
+
+async function main() {
+    try {
+        console.log('--- GATEKEEPER HYBRID ENGINE (OPTIMIZED) ---');
+
+        await gatekeeper.init();
+
+        const workers = [];
+        for (let i = 0; i < CONCURRENCY; i++) {
+            workers.push(worker(i));
+        }
+
+        console.log(`[*] ${CONCURRENCY} workers running`);
+        await Promise.all(workers);
+
+    } catch (err) {
+        console.error('[!] Fatal:', err.message);
+        process.exit(1);
+    }
+}
+
+main().catch(console.error);

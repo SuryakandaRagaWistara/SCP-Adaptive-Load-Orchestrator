@@ -1,0 +1,267 @@
+  # aggregator:
+  #   build: ./scp-aggregator
+  #   restart: always
+  #   volumes:
+  #     - ./scp-logs:/var/log/nginx:ro
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #     - /etc/localtime:/etc/localtime:ro 
+  #     - /etc/timezone:/etc/timezone:ro   
+  #   environment:
+  #     - REDIS_HOST=redis
+  #   depends_on:
+  #     redis:
+  #       condition: service_healthy
+
+  # ai_inference:
+  #   build: ./scp-ai
+  #   restart: always
+  #   volumes:
+  #     - ./scp-ai:/app
+  #     - /app/node_modules
+  #   environment:
+  #     - REDIS_HOST=redis
+  #   depends_on:
+  #     redis:
+  #       condition: service_healthy
+  #     aggregator:
+  #       condition: service_started
+
+
+version: '3.8'
+
+services:
+  database:
+    image: postgres:15-alpine
+    container_name: ecommerce-apotek-db
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password_123
+      POSTGRES_DB: ecommerce_db
+      POSTGRES_MAX_CONNECTIONS: 200
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks:
+      - apotek-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d ecommerce_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  pgbouncer:
+    image: edoburu/pgbouncer
+    container_name: ecommerce-apotek-pgbouncer
+    environment:
+      - DATABASE_URL=postgres://admin:password_123@ecommerce-apotek-db:5432/ecommerce_db
+      - DB_HOST=ecommerce-apotek-db
+      - DB_USER=admin
+      - DB_PASSWORD=password_123
+      - DB_NAME=ecommerce_db
+
+      - AUTH_TYPE=trust
+
+      - POOL_MODE=transaction
+      - MAX_CLIENT_CONN=1000
+      - DEFAULT_POOL_SIZE=50
+      - IGNORE_STARTUP_PARAMETERS=extra_float_digits,search_path
+      - LISTEN_PORT=6432
+
+    networks:
+      - apotek-net
+
+    depends_on:
+      database:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "localhost", "-p", "6432", "-U", "admin"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      
+  redis:
+    image: redis:7-alpine
+    container_name: ecommerce-apotek-redis-1
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./scp-redis-data:/data
+    networks:
+      - apotek-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  load_balancer:
+    image: openresty/openresty:alpine
+    container_name: ecommerce-apotek-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./scp-nginx/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf:ro
+      - ./scp-nginx/lua:/usr/local/openresty/nginx/conf/lua:ro
+      - ./scp-logs:/var/log/nginx
+      - /etc/localtime:/etc/localtime:ro 
+      - /etc/timezone:/etc/timezone:ro   
+    networks:
+      - apotek-net
+    depends_on:
+      redis:
+        condition: service_healthy
+  api_server-1:
+    build: ./scp-api
+    container_name: ecommerce-apotek-api_server-1
+    restart: on-failure
+    environment:
+      - REDIS_HOST=ecommerce-apotek-redis-1
+      - DB_HOST=ecommerce-apotek-pgbouncer 
+      - DB_PORT=6432      
+      - DB_USER=admin
+      - DB_PASSWORD=password_123
+      - DB_NAME=ecommerce_db
+    networks:
+      - apotek-net
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  api_server-2:
+    build: ./scp-api
+    container_name: ecommerce-apotek-api_server-2
+    restart: on-failure
+    environment:
+      - REDIS_HOST=ecommerce-apotek-redis-1
+      - DB_HOST=ecommerce-apotek-pgbouncer 
+      - DB_PORT=6432      
+      - DB_USER=admin
+      - DB_PASSWORD=password_123
+      - DB_NAME=ecommerce_db
+    networks:
+      - apotek-net
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  api_server-3:
+    build: ./scp-api
+    container_name: ecommerce-apotek-api_server-3
+    restart: on-failure
+    environment:
+      - REDIS_HOST=ecommerce-apotek-redis-1
+      - DB_HOST=ecommerce-apotek-pgbouncer 
+      - DB_PORT=6432      
+      - DB_USER=admin
+      - DB_PASSWORD=password_123
+      - DB_NAME=ecommerce_db
+    networks:
+      - apotek-net
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # --- AGGREGATORS (PYTHON) ---
+  aggregator_gatekeeper:
+    build: ./scp-aggregator
+    container_name: ecommerce-apotek-aggregator-gatekeeper
+    command: python -u agt_gatekeeper.py
+    restart: always
+    volumes:
+      - ./scp-aggregator:/app
+      - ./scp-logs:/var/log/nginx:ro
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      - REDIS_HOST=ecommerce-apotek-redis-1
+    networks:
+      - apotek-net
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  aggregator_controller:
+    build: ./scp-aggregator
+    container_name: ecommerce-apotek-aggregator-controller
+    command: python -u agt_forecaster.py
+    restart: always
+    volumes:
+      - ./scp-aggregator:/app
+      - /var/run/docker.sock:/var/run/docker.sock 
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      - REDIS_HOST=ecommerce-apotek-redis-1
+    networks:
+      - apotek-net
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # --- AI COMPONENTS (NODE.JS) ---
+  ai_gatekeeper:
+    build: ./scp-ai
+    container_name: ecommerce-apotek-ai_gatekeeper
+    command: node index_gatekeeper.js
+    restart: always
+    volumes:
+      - ./scp-ai:/app
+      - /app/node_modules
+    environment:
+      - REDIS_HOST=ecommerce-apotek-redis-1
+    networks:
+      - apotek-net
+    depends_on:
+      aggregator_gatekeeper:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          memory: 300M
+    
+  ai_controller:
+    build: ./scp-ai
+    container_name: ecommerce-apotek-ai_controller
+    command: node index_controller.js
+    restart: always
+    volumes:
+      - ./scp-ai:/app
+      - /app/node_modules
+    environment:
+      - REDIS_HOST=ecommerce-apotek-redis-1
+    networks:
+      - apotek-net
+    depends_on:
+      aggregator_controller:
+        condition: service_started
+    
+  # --- TRAINING ----
+  ai_trainer:
+    build: ./scp-ai-training
+    container_name: ecommerce-apotek-ai_trainer
+    restart: "no"
+    volumes:
+      - ./scp-ai/models:/app/model
+      - ./scp-ai-training:/app
+    environment:
+      - REDIS_HOST=ecommerce-apotek-redis-1
+    networks:
+      - apotek-net
+    depends_on:
+      redis:
+        condition: service_healthy
+      aggregator_gatekeeper:
+        condition: service_started
+
+# --- NETWORKS ---
+networks:
+  apotek-net:
+    driver: bridge
+
+volumes:
+  db_data:  
+    driver: local

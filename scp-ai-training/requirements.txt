@@ -1,0 +1,5 @@
+pandas
+scikit-learn
+redis
+skl2onnx
+onnx

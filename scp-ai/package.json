@@ -1,0 +1,14 @@
+{
+  "name": "scp-ai",
+  "version": "1.0.0",
+  "main": "index.js",
+  "dependencies": {
+    "global-agent": "^3.0.0",
+    "ioredis": "^5.3.2",
+    "onnxruntime-node": "^1.16.0",
+    "roarr": "^7.15.0"
+  },
+  "scripts": {
+    "start": "node index.js"
+  }
+}
